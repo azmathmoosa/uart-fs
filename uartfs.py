@@ -4,11 +4,14 @@ from bottle import route, run, template, request, static_file, post
 import re
 import json
 import time
+import datetime
 from subprocess import check_output
+import tempfile
 
 sTTY = '/dev/ttyUSB0'
 sBaud = 57600
 ser = None
+
 
 
 @post('/fm')
@@ -28,6 +31,13 @@ def index():
     else:
         return "Failed"
 
+@route('/download')
+def download():
+    filepath = request.query['path']
+    #TODO: finish download
+
+
+
 @route('/<filepath:path>')
 def serve_static(filepath):
     return static_file(filepath, root="views/")
@@ -41,7 +51,10 @@ def handler():
         res = list(postdata['path'])
 
     if postdata['action'] == 'getContent':
-        res = get_content(postdata['path'])
+        res = get_content(postdata['item'])
+
+    if postdata['action'] == 'edit':
+        res = edit_content(postdata['item'], postdata['content'])
 
     if postdata['action'] == 'rename':
         res = rename(postdata['item'],postdata['newItemPath'])
@@ -86,6 +99,9 @@ def filter(x):
 def command(cmdline):
     ser.write(("    %s \r   "%cmdline).encode())
 
+def ser_write(cmdline):
+    ser.write(("%s" % cmdline).encode())
+
 def send_line(line):
     ser.write(("%s\r"%line).encode())
 
@@ -97,14 +113,28 @@ def list(path):
     files = x.split('\n')
 
     jfiles = []
+
     for file in files:
         try:
-            rights, _, __, ___, size, month, day, year, name = file.split()
+            rights, _, __, ___, size, month, day, t, name = file.split()
+            if ':' not in t:
+                y = t
+                t = "0:0"
+            else:
+                y = datetime.datetime.now().year
+
+            mon = datetime.datetime.strptime(month,"%b")
+            mon = mon.strftime("%m")
+            dt = "%s-%s-%s %s:%s"%(y, mon, day, t,"0")
+
+            #d = "%s%s%s%s"%(day,month,y,t)
+            #dt = time.mktime(datetime.datetime.strptime(d, "%d%b%Y%H:%M").timetuple())
+
             type = "dir" if rights.startswith('d') else "file"
             jf = { "name": name,
                    "rights": rights,
                    "size": size,
-                   "date": " ".join([day,month,year]),
+                   "date": dt,
                    "type": type
                    }
             jfiles.append(jf)
@@ -113,10 +143,22 @@ def list(path):
 
     return jfiles
 
+
 def get_content(path):
     command(" cat %s  "%path)
-    s = filter(read_result())
+    s = read_result()
     return s
+
+
+def edit_content(path, contents):
+    command(" cat << 'EOF' > %s \r%s\r "%(path,contents))
+    ser_write("\rEOF\r")
+    s = read_result()
+    if s.endswith("EOF"):
+        return {"success":"true", "error":None}
+    else:
+        return {"success":"false", "error": s}
+
 
 def rename(path, newpath):
     command(" mv %s %s  "%(path,newpath))

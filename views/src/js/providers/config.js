@@ -15,7 +15,7 @@
             editUrl: 'handler',
             getContentUrl: 'handler',
             createFolderUrl: 'handler',
-            downloadFileUrl: 'handler',
+            downloadFileUrl: 'download',
             downloadMultipleUrl: 'handler',
             compressUrl: 'handler',
             extractUrl: 'handler',
