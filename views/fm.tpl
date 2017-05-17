@@ -61,10 +61,20 @@
       });
     }]);
   </script>
+  <style>
+    .fm {
+        height: 60%;
+    }
+  </style>
 </head>
 
 <body class="ng-cloak">
+ <div class="fm">
   <angular-filemanager></angular-filemanager>
+ </div>
 
+ <div class="console">
+    %include('console.tpl');
+ </div>
 </body>
 </html>

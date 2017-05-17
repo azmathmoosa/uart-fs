@@ -7,11 +7,14 @@ import time
 import datetime
 from subprocess import check_output
 import tempfile
+import threading
+from collections import deque
 
 sTTY = '/dev/ttyUSB0'
 sBaud = 57600
 ser = None
 
+serial_out = deque(maxlen=100)
 
 
 @post('/fm')
@@ -20,6 +23,8 @@ def fm():
     sTTY = request.forms.get('tty')
     sBaud = request.forms.get('baud')
     ser = serial.Serial(sTTY, sBaud, timeout=1)
+    readThread = threading.Thread(target=listen_serial, args=(ser,))
+    readThread.start()
     return template('fm.tpl',"")
 
 @route('/')
@@ -30,6 +35,10 @@ def index():
         return template('index.tpl', serial=ttys, bauds=bauds)
     else:
         return "Failed"
+
+@route('/console')
+def console():
+    return serial_out
 
 @route('/download')
 def download():
@@ -229,13 +238,27 @@ def cd(args):
 #
 
 def read_result():
-    x = ser.read(65535).decode()
-    r = x[x.find('\n') + 1:x.rfind('\n')]
-    return r.strip()
+    global serial_out
+    for i, _ in enumerate(serial_out):
+        serial_out[i] = serial_out[i].strip()
+
+    t = "\n".join(serial_out)
+    print(t)
+    return t
+    #x = ser.read(65535).decode()
+    #r = x[x.find('\n') + 1:x.rfind('\n')]
+    #return r.strip()
 
 def print_result():
     p = read_result()
     print(p)
+
+def listen_serial(port):
+    global serial_out
+    while True:
+        if ser.inWaiting() > 0:
+            readval = port.readline().decode()
+            serial_out.append(readval)
 
 
 greet()
