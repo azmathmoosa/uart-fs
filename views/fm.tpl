@@ -66,6 +66,67 @@
         height: 60%;
     }
   </style>
+
+        <script type="text/javascript">
+         function WebSocketInit()
+         {
+            if ("WebSocket" in window)
+            {
+               console.log("WebSocket is supported by your Browser!");
+               var consoleWrapper = document.getElementById('console');
+               var consoleNode = document.getElementById('terminal');
+
+               // Let us open a web socket
+               var ws = new WebSocket("ws://localhost:5000/console_websocket");
+
+               ws.onopen = function()
+               {
+                  // Web Socket is connected, send data using send()
+                  ws.send("init websocket");
+
+               };
+
+               ws.onmessage = function (evt)
+               {
+                  var received_msg = evt.data;
+                  console.log(received_msg);
+                  var lineNode = document.createElement("P");
+                  var lineText = document.createTextNode(received_msg);
+                  lineNode.appendChild(lineText);
+                  lineNode.classList.add('terminal--output');
+                  consoleNode.appendChild(lineNode);
+                  consoleWrapper.scrollTop = consoleWrapper.scrollHeight;
+
+                  //consoleNode.appendChild(
+
+
+               };
+
+               ws.onclose = function()
+               {
+                  // websocket is closed.
+                  console.log("Connection is closed...");
+               };
+
+               document.getElementById("consoleBox")
+                .addEventListener("keyup", function(event) {
+                event.preventDefault();
+                if (event.keyCode == 13) {
+                    var cmd = document.getElementById("consoleBox").value;
+                    ws.send(cmd);
+                    console.log(cmd);
+                    document.getElementById("consoleBox").value = "";
+                }
+                });
+            }
+
+            else
+            {
+               // The browser doesn't support WebSocket
+               console.log("WebSocket NOT supported by your Browser!");
+            }
+         }
+      </script>
 </head>
 
 <body class="ng-cloak">
@@ -73,7 +134,7 @@
   <angular-filemanager></angular-filemanager>
  </div>
 
- <div class="console">
+ <div id="console" class="console">
     %include('console.tpl');
  </div>
 </body>

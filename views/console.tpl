@@ -2,8 +2,8 @@
 div.console {
   cursor: text;
   counter-reset: input;
-  margin: 20px;
-  padding: 0;
+  margin: 0px;
+  padding: 10px;
   background: lavenderblush;
   -moz-font-smoothing: antialiased;
   -webkit-font-smoothing: antialiased;
@@ -15,7 +15,7 @@ div.console {
 }
 
 .terminal {
-  float: left;
+  position: relative;
   margin: 0;
   padding: 0;
   font-family: Menlo, Courier New;
@@ -56,6 +56,11 @@ div.console {
   color: rgba(255, 255, 255, 0.5);
 }
 
+.terminal p {
+  margin-bottom: 0px;
+  line-height: normal;
+}
+
 @-webkit-keyframes blink {
   from {
     opacity: 1;
@@ -90,20 +95,21 @@ div.console {
 }
 
 .left-inner-addon {
-    position: relative;
+    display: flex;
 }
 .left-inner-addon input {
     padding-left: 22px;
 }
 .left-inner-addon span {
-    position: absolute;
+    position: relative;
     pointer-events: none;
 }
 
 </style>
-<div class=" terminal ">
-  <p class=" terminal--header ">Last login: Sun Sep 15 11:11:50 on ttys000</p>
-  <p class=" terminal--input ">whoami</p>
+<div>
+<div class=" terminal " id="terminal">
+  <p class=" terminal--header ">Listening on {{sTTY}} at {{sBaud}}</p>
+<!--  <p class=" terminal--input ">whoami</p>
   <p class=" terminal--output ">Rafael Rinaldi</p>
   <p class=" terminal--output is-console ">var sprintf = require('util').format;</p>
   <p class=" terminal--output is-not-defined "></p>
@@ -113,10 +119,16 @@ div.console {
   <p class="terminal--output">CSS3 is awesome!</p>
   <p class=" terminal--output is-not-defined "></p>
   <p class=" terminal--output is-console "></p>
-  <p class=" terminal--output ">(^C again to quit)</p>
-  <div class="left-inner-addon">
-        <span>$</span>
-        <input type="text" class="terminal--inputbox" placeholder="cmd" />
-    </div>
-
+  <p class=" terminal--output ">(^C again to quit)</p> -->
 </div>
+</div>
+<div>
+<div class="terminal left-inner-addon">
+    <span>$</span>
+    <input id="consoleBox" type="text" class="terminal--inputbox" placeholder="cmd" />
+</div>
+</div>
+
+<script>
+  WebSocketInit();
+</script>

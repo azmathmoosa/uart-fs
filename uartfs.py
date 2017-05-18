@@ -1,6 +1,6 @@
 import os
 import serial
-from bottle import route, run, template, request, static_file, post
+from bottle import route, get, run, template, request, static_file, post, abort, Bottle
 import re
 import json
 import time
@@ -9,23 +9,30 @@ from subprocess import check_output
 import tempfile
 import threading
 from collections import deque
+from bottle.ext.websocket import GeventWebSocketServer
+from bottle.ext.websocket import websocket
 
 sTTY = '/dev/ttyUSB0'
 sBaud = 57600
 ser = None
 
-serial_out = deque(maxlen=100)
+serial_out = []
 
+console = None
+flag_silent = True
 
 @post('/fm')
 def fm():
     global ser, sTTY, sBaud
     sTTY = request.forms.get('tty')
     sBaud = request.forms.get('baud')
+    if ser is not None:
+        ser.close()
+
     ser = serial.Serial(sTTY, sBaud, timeout=1)
     readThread = threading.Thread(target=listen_serial, args=(ser,))
     readThread.start()
-    return template('fm.tpl',"")
+    return template('fm.tpl',sTTY=sTTY,sBaud=sBaud)
 
 @route('/')
 def index():
@@ -36,9 +43,19 @@ def index():
     else:
         return "Failed"
 
-@route('/console')
-def console():
-    return serial_out
+@get('/console_websocket', apply=[websocket])
+def console_websocket(ws):
+    global console
+    console = ws
+    while True:
+        msg = ws.receive()
+        if msg is not None:
+            if msg != "init websocket":
+                command(msg)
+            else:
+                ws.send("WebSocket Initialized")
+        else:
+            break
 
 @route('/download')
 def download():
@@ -105,8 +122,17 @@ def list_ttys():
 def filter(x):
     return x[x.find('\n') + 1:x.rfind('\n')]
 
-def command(cmdline):
-    ser.write(("    %s \r   "%cmdline).encode())
+def command(cmdline, wait=1):
+    # clear read buffer
+    serial_out.clear()
+    ser.write(("  cmd=$( %s 2>&1)\r   "%cmdline).encode())
+    time.sleep(wait)
+
+def raw_command(cmdline, wait=1):
+    serial_out.clear()
+    ser.write(("   %s   \r   " % cmdline).encode())
+    if wait > 0:
+        time.sleep(wait)
 
 def ser_write(cmdline):
     ser.write(("%s" % cmdline).encode())
@@ -116,7 +142,7 @@ def send_line(line):
 
 #API Stuff
 def list(path):
-    command(" ls --color=never -l %s "%path)
+    raw_command(" ls --color=never -l %s "%path)
     x = read_result()
 
     files = x.split('\n')
@@ -154,8 +180,17 @@ def list(path):
 
 
 def get_content(path):
-    command(" cat %s  "%path)
+    global flag_silent
+    raw_command(' cat \'%s\' > $(tty) && echo "#&^eof^&#"  '%path,0)
+    while flag_silent == False:
+        time.sleep(1)
+
+    print(flag_silent)
     s = read_result()
+    print(s)
+    s = s.split("#&^eof^&#")[1]
+    s = "".join(s.split("\n")[1:])
+
     return s
 
 
@@ -163,26 +198,28 @@ def edit_content(path, contents):
     command(" cat << 'EOF' > %s \r%s\r "%(path,contents))
     ser_write("\rEOF\r")
     s = read_result()
-    if s.endswith("EOF"):
+    st, msg = validate_cmd()
+    if st:
         return {"success":"true", "error":None}
     else:
-        return {"success":"false", "error": s}
+        return {"success":"false", "error": msg}
 
 
 def rename(path, newpath):
     command(" mv %s %s  "%(path,newpath))
     s = read_result()
-    print(s)
-    if len(s) > 0:
-        return { "success": "false", "error": s }
+    st, msg = validate_cmd()
+    if not st:
+        return { "success": "false", "error": msg }
     else:
         return { "success": "true", "error" : None }
 
 def create_folder(path):
     command(" mkdir %s  "%path)
     s = read_result()
-    if "can't" in s:
-        return { "success": "false", "error": s }
+    st,msg = validate_cmd()
+    if not st:
+        return { "success": "false", "error": msg }
     else:
         return { "success": "true", "error" : None }
 
@@ -197,10 +234,15 @@ def fm(action, paths, dest_path):
         cmd = "rm -r"
 
     for path in paths:
-        command(" %s %s %s "%(cmd, path, dest_path))
-        s = read_result()
-        if cmd in s:
-            return {"success": "false", "error": s}
+        if action=="remove":
+            compiledcmd = " %s '%s' " % (cmd, path)
+        else:
+            compiledcmd = " %s '%s' '%s' "%(cmd, path, dest_path)
+
+        command(compiledcmd)
+        st, msg = validate_cmd()
+        if not st:
+            return {"success": "false", "error": msg}
 
     return {"success": "true", "error": None}
 
@@ -213,8 +255,9 @@ def set_permissions(paths, code, recursive):
     for path in paths:
         command(" chmod %s %s %s "%(rec, code, path))
         s = read_result()
-        if len(s) > 0:
-            return {"success": "false", "error": s}
+        st, msg = validate_cmd()
+        if st:
+            return {"success": "false", "error": msg}
 
     return {"success": "true", "error": None}
 
@@ -243,26 +286,49 @@ def read_result():
         serial_out[i] = serial_out[i].strip()
 
     t = "\n".join(serial_out)
-    print(t)
+    serial_out.clear()
     return t
     #x = ser.read(65535).decode()
     #r = x[x.find('\n') + 1:x.rfind('\n')]
     #return r.strip()
+
+def validate_cmd():
+    s = read_result()
+    raw_command(" echo $? ")
+    status = read_result()
+    if status.strip().endswith("1"):
+        raw_command(" echo $cmd ")
+        s = read_result()
+        return False, s
+    else:
+        return True, ""
+
 
 def print_result():
     p = read_result()
     print(p)
 
 def listen_serial(port):
-    global serial_out
+    global serial_out, flag_silent
     while True:
         if ser.inWaiting() > 0:
+            flag_silent = False
             readval = port.readline().decode()
             serial_out.append(readval)
-
+            if console != None:
+                console.send(readval.strip())
+        else:
+            flag_silent = True
 
 greet()
-run(host='0.0.0.0', port=5000)
+
+host = "0.0.0.0"
+port = 5000
+run(host='0.0.0.0', port=5000, server=GeventWebSocketServer)
+#server = WSGIServer((host,port), Bottle(), handler_class=WebSocketHandler)
+
+#server.serve_forever()
+
 #
 # while True:
 #     cmd, *args = input(">").split(" ")
