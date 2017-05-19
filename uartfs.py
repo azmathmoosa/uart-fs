@@ -1,16 +1,15 @@
-import os
-import serial
-from bottle import route, get, run, template, request, static_file, post, abort, Bottle
-import re
-import json
-import time
 import datetime
-from subprocess import check_output
+import json
+import os
 import tempfile
 import threading
-from collections import deque
+import time
+
+import serial
 from bottle.ext.websocket import GeventWebSocketServer
 from bottle.ext.websocket import websocket
+
+from bottle import route, get, run, template, request, static_file, post
 
 sTTY = '/dev/ttyUSB0'
 sBaud = 57600
@@ -19,13 +18,20 @@ ser = None
 serial_out = []
 
 console = None
-flag_silent = True
+flag_eof = True
+flag_getfile = False
+
+EOF_STRING = "#&^eof^&#"
+
 
 @post('/fm')
 def fm():
     global ser, sTTY, sBaud
     sTTY = request.forms.get('tty')
     sBaud = request.forms.get('baud')
+    uName = request.forms.get('username')
+    uPass = request.forms.get('password')
+
     if ser is not None:
         ser.close()
 
@@ -33,6 +39,7 @@ def fm():
     readThread = threading.Thread(target=listen_serial, args=(ser,))
     readThread.start()
     return template('fm.tpl',sTTY=sTTY,sBaud=sBaud)
+
 
 @route('/')
 def index():
@@ -43,6 +50,7 @@ def index():
     else:
         return "Failed"
 
+
 @get('/console_websocket', apply=[websocket])
 def console_websocket(ws):
     global console
@@ -51,22 +59,47 @@ def console_websocket(ws):
         msg = ws.receive()
         if msg is not None:
             if msg != "init websocket":
-                command(msg)
+                ser_write(msg+"\r")
             else:
                 ws.send("WebSocket Initialized")
         else:
             break
 
+
 @route('/download')
 def download():
+    global flag_getfile, flag_eof
     filepath = request.query['path']
-    #TODO: finish download
+    with tempfile.TemporaryDirectory() as td:
+        fp = tempfile.NamedTemporaryFile(delete=False,dir=td)
 
+        def writeFile(line):
+            if not EOF_STRING in line:
+                fp.write(line.encode())
+
+        flag_getfile = writeFile
+        flag_eof = False
+        raw_command(' cat \'%s\' > $(tty) && echo "%s"  ' % (filepath, EOF_STRING), 0)
+        while flag_eof == False:
+            time.sleep(1)
+
+        fp.seek(0)
+        flag_getfile = False
+        fp.close()
+
+        newname = fp.name
+
+        oldname = os.path.join(os.path.dirname(fp.name), os.path.basename(filepath))
+
+        os.rename(newname, oldname)
+
+        return static_file(oldname,root="/",download=True)
 
 
 @route('/<filepath:path>')
 def serve_static(filepath):
     return static_file(filepath, root="views/")
+
 
 @post('/handler')
 def handler():
@@ -102,10 +135,12 @@ def handler():
     result = {"result": res}
     return json.dumps(result)
 
+
 def greet():
     print("******************** UART FS ***********")
     print("Tool to send and receive files over UART")
     print("Goto localhost:5000")
+
 
 def list_ttys():
     if not os.path.exists("/dev/serial"):
@@ -119,8 +154,10 @@ def list_ttys():
 
     return ttys
 
+
 def filter(x):
     return x[x.find('\n') + 1:x.rfind('\n')]
+
 
 def command(cmdline, wait=1):
     # clear read buffer
@@ -128,17 +165,21 @@ def command(cmdline, wait=1):
     ser.write(("  cmd=$( %s 2>&1)\r   "%cmdline).encode())
     time.sleep(wait)
 
+
 def raw_command(cmdline, wait=1):
     serial_out.clear()
     ser.write(("   %s   \r   " % cmdline).encode())
     if wait > 0:
         time.sleep(wait)
 
+
 def ser_write(cmdline):
     ser.write(("%s" % cmdline).encode())
 
+
 def send_line(line):
     ser.write(("%s\r"%line).encode())
+
 
 #API Stuff
 def list(path):
@@ -180,16 +221,15 @@ def list(path):
 
 
 def get_content(path):
-    global flag_silent
-    raw_command(' cat \'%s\' > $(tty) && echo "#&^eof^&#"  '%path,0)
-    while flag_silent == False:
+    global flag_eof
+    flag_eof = False
+    raw_command(' cat \'%s\' > $(tty) && echo "%s"  '%(path, EOF_STRING),0)
+    while flag_eof == False:
         time.sleep(1)
 
-    print(flag_silent)
     s = read_result()
+    s = s[s.find('\n') + 1:s.rfind('\n')]
     print(s)
-    s = s.split("#&^eof^&#")[1]
-    s = "".join(s.split("\n")[1:])
 
     return s
 
@@ -214,6 +254,7 @@ def rename(path, newpath):
     else:
         return { "success": "true", "error" : None }
 
+
 def create_folder(path):
     command(" mkdir %s  "%path)
     s = read_result()
@@ -222,6 +263,7 @@ def create_folder(path):
         return { "success": "false", "error": msg }
     else:
         return { "success": "true", "error" : None }
+
 
 def fm(action, paths, dest_path):
     if action == "move":
@@ -245,6 +287,7 @@ def fm(action, paths, dest_path):
             return {"success": "false", "error": msg}
 
     return {"success": "true", "error": None}
+
 
 def set_permissions(paths, code, recursive):
     if recursive == "true":
@@ -292,6 +335,7 @@ def read_result():
     #r = x[x.find('\n') + 1:x.rfind('\n')]
     #return r.strip()
 
+
 def validate_cmd():
     s = read_result()
     raw_command(" echo $? ")
@@ -308,17 +352,21 @@ def print_result():
     p = read_result()
     print(p)
 
+
 def listen_serial(port):
-    global serial_out, flag_silent
+    global serial_out, flag_eof
     while True:
         if ser.inWaiting() > 0:
-            flag_silent = False
             readval = port.readline().decode()
             serial_out.append(readval)
+            if readval.strip() == EOF_STRING:
+                flag_eof = True
+
             if console != None:
                 console.send(readval.strip())
-        else:
-            flag_silent = True
+
+            if flag_getfile != False:
+                flag_getfile(readval)
 
 greet()
 
