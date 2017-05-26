@@ -79,7 +79,7 @@ def download():
 
         flag_getfile = writeFile
         flag_eof = False
-        raw_command(' cat \'%s\' > $(tty) && echo "%s"  ' % (filepath, EOF_STRING), 0)
+        raw_command(' cat \'%s\' && echo "%s"  ' % (filepath, EOF_STRING), 0)
         while flag_eof == False:
             time.sleep(1)
 
@@ -223,7 +223,7 @@ def list(path):
 def get_content(path):
     global flag_eof
     flag_eof = False
-    raw_command(' cat \'%s\' > $(tty) && echo "%s"  '%(path, EOF_STRING),0)
+    raw_command(' cat \'%s\' && echo "%s"  '%(path, EOF_STRING),0)
     while flag_eof == False:
         time.sleep(1)
 
@@ -235,7 +235,7 @@ def get_content(path):
 
 
 def edit_content(path, contents):
-    command(" cat << 'EOF' > %s \r%s\r "%(path,contents))
+    raw_command(" cat << 'EOF' > %s \r%s\r "%(path,contents))
     ser_write("\rEOF\r")
     s = read_result()
     st, msg = validate_cmd()
@@ -316,6 +316,7 @@ def cd(args):
 #     send_line("cat >%s << 'EOL'"%fname)
 #     with open(path) as f:
 #         for line in f:
+#             send_line(line.rstrip())
 #             send_line(line.rstrip())
 #
 #         send_line("EOL")
