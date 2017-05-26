@@ -7,9 +7,9 @@ I was sick and tired of not being able to freely transfer files over uart when w
 
 ## Screenshots
 
-![Choose serial port](https://github.com/azmathmoosa/uart-fs/tree/master/screenshots/initialize.png "Choose serial port")
-![The main interface](https://github.com/azmathmoosa/uart-fs/tree/master/screenshots/interface.png "The main interface")
-![Supported Functions](https://github.com/azmathmoosa/uart-fs/tree/master/screenshots/functions.png "Supported Functions")
+![Choose serial port](screenshots/initialize.png "Choose serial port")
+![The main interface](screenshots/interface.png "The main interface")
+![Supported Functions](screenshots/functions.png "Supported Functions")
 
 ## How To Use
 
